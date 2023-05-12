@@ -1,14 +1,15 @@
-local file = io.open("lua/log.txt", "w+")
-file:write("START\n")
-file:flush()
-file:close()
+--local file = io.open("lua/log.txt", "w+")
+--file:write("START\n")
+--file:flush()
+--file:close()
 
 
 function log(t)
-    local file = io.open("lua/log.txt", "a")
-    file:write(tostring(t) .. "\n")
-    file:flush()
-    file:close()
+	print(t)
+    --local file = io.open("lua/log.txt", "a")
+    --file:write(tostring(t) .. "\n")
+    --file:flush()
+    --file:close()
 end
 
 ---comment

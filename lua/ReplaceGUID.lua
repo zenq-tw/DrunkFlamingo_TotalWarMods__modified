@@ -27,102 +27,129 @@ local UUID_CREATED = {}
 local UUID_COUNT = {}
 
 local guid_find_pattern ='(%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x)'
-total_allowed_fails = 0
+local total_allowed_fails = 0
 
 local lines_to_restore = {}
 local lines_to_old_context = {}
 should_flag_context_command_issues = false 
 --local guid_find_pattern = string.gsub(guid_template, "[^%-]", "%x")
-function replace_GUID(...)
-    for i = 1, #arg do
-        local file = io.open("lua/input/twui/"..arg[i], "r+")
-        local file_text = file:read("*a")
-        file:close()
 
-        local file_lines = {}
-        for line in string.gmatch(file_text, "[^\n]+") do
-            table.insert(file_lines, line)
-        end
+function replace_GUID(file_path)
+	assert(type(file_path) == 'string', 'invalid argument')
+	
+	file_path = file_path:gsub([[\]], '/')
+	
+	local folder_path, file_name, file_ext = file_path:match('^(.+/)(.+)(%.twui%.xml)$')
+	if not folder_path then
+		folder_path, file_name, file_ext = file_path:match('^(.+/)(.+)(%.xml)$')
+	end
+	assert(folder_path and file_name and file_ext, 'invalid file')
+	
+	
+	local file = assert(io.open(file_path, "r+"))
+	
+	local file_text = file:read("*a")
+	file:close()
 
-        local _, state_uniqueguid = string.gsub(file_text, "state_uniqueguid", "")
-        total_allowed_fails = total_allowed_fails + state_uniqueguid
-        local _, uniqueguid_in_template_count = string.gsub(file_text, "uniqueguid_in_template", "")
-        total_allowed_fails = total_allowed_fails + uniqueguid_in_template_count
-        for MATCHED_GUID in string.gmatch(file_text, guid_find_pattern) do
-            log("Matched GUID: "..MATCHED_GUID)
-            if UUID_CREATED[MATCHED_GUID] then
-                log("One of ours")
-                UUID_COUNT[MATCHED_GUID] = UUID_COUNT[MATCHED_GUID] + 1
-                log("Incremented GUID:" ..MATCHED_GUID.." to "..UUID_COUNT[MATCHED_GUID])
-                --already converted this one.
-            else
-                local GUID = uuid():upper()
-                log("Created GUID:" ..GUID)
-                UUID_CREATED[GUID] = true
+	local file_lines = {}
+	for line in string.gmatch(file_text, "[^\n]+") do
+		table.insert(file_lines, line)
+	end
 
-                local searchable_matched_guid = escape_string(MATCHED_GUID)
-                local new_file_text, c = string.gsub(file_text, searchable_matched_guid, GUID)
-                log("Searching pattern "..searchable_matched_guid.." matched "..tostring(c))
-                UUID_COUNT[GUID] = (UUID_COUNT[GUID]or 0) + c
-                log("Incremented GUID:" ..GUID.." to "..UUID_COUNT[GUID])
-                file_text = new_file_text
-            end
-            
-        end
+	local _, state_uniqueguid = string.gsub(file_text, "state_uniqueguid", "")
+	total_allowed_fails = total_allowed_fails + state_uniqueguid
+	local _, uniqueguid_in_template_count = string.gsub(file_text, "uniqueguid_in_template", "")
+	total_allowed_fails = total_allowed_fails + uniqueguid_in_template_count
+	for MATCHED_GUID in string.gmatch(file_text, guid_find_pattern) do
+		log("  Matched GUID: "..MATCHED_GUID)
+		if UUID_CREATED[MATCHED_GUID] then
+			log("  One of ours")
+			UUID_COUNT[MATCHED_GUID] = UUID_COUNT[MATCHED_GUID] + 1
+			log("  Incremented GUID:" ..MATCHED_GUID.." to "..UUID_COUNT[MATCHED_GUID])
+			--already converted this one.
+		else
+			local GUID = uuid():upper()
+			log("  Created GUID:" ..GUID)
+			UUID_CREATED[GUID] = true
 
-        for i = 1, #file_lines do
-            local line = file_lines[i]
-            if line:find("uniqueguid_in_template") then
-                table.insert(lines_to_restore, i)
-                lines_to_old_context[i] = line
+			local searchable_matched_guid = escape_string(MATCHED_GUID)
+			local new_file_text, c = string.gsub(file_text, searchable_matched_guid, GUID)
+			log("  Searching pattern "..searchable_matched_guid.." matched "..tostring(c))
+			UUID_COUNT[GUID] = (UUID_COUNT[GUID]or 0) + c
+			log("  Incremented GUID:" ..GUID.." to "..UUID_COUNT[GUID])
+			file_text = new_file_text
+		end
+		
+	end
 
-            elseif line:find("Component%(&quot;"..guid_find_pattern.."&quot;%)") 
-            or line:find("DoesGUIDExist%(&quot;"..guid_find_pattern.."&quot;%)") then
-                for MATCHED_GUID in string.gmatch(line, guid_find_pattern) do
-                    if UUID_COUNT[MATCHED_GUID] or 0 <= 1 then
-                        should_flag_context_command_issues = true
-                        total_allowed_fails = total_allowed_fails + 1
-                    end
-                end
+	for i = 1, #file_lines do
+		local line = file_lines[i]
+		if line:find("uniqueguid_in_template") then
+			table.insert(lines_to_restore, i)
+			lines_to_old_context[i] = line
 
-            end
-        end
+		elseif line:find("Component%(&quot;"..guid_find_pattern.."&quot;%)") 
+		or line:find("DoesGUIDExist%(&quot;"..guid_find_pattern.."&quot;%)") then
+			for MATCHED_GUID in string.gmatch(line, guid_find_pattern) do
+				if UUID_COUNT[MATCHED_GUID] or 0 <= 1 then
+					should_flag_context_command_issues = true
+					total_allowed_fails = total_allowed_fails + 1
+				end
+			end
 
-        local file_lines = {}
-        for line in string.gmatch(file_text, "[^\n]+") do
-            table.insert(file_lines, line)
-        end
-        for i = 1, #lines_to_restore do
-            local line = lines_to_old_context[lines_to_restore[i]]
-            file_lines[lines_to_restore[i]] = line
-        end
-        new_file_text = file_lines[1]
-        for i = 2, #file_lines do
-            new_file_text = new_file_text.."\n" ..file_lines[i]
-        end
-        local new_file_path = "lua/output/twui/" .. arg[i] 
+		end
+	end
 
-        local new_file = io.open(new_file_path, "w+")
-        new_file:write(new_file_text)
-        new_file:flush()
-        new_file:close()
-    end
+	local file_lines = {}
+	for line in string.gmatch(file_text, "[^\n]+") do
+		table.insert(file_lines, line)
+	end
+	for i = 1, #lines_to_restore do
+		local line = lines_to_old_context[lines_to_restore[i]]
+		file_lines[lines_to_restore[i]] = line
+	end
+	new_file_text = file_lines[1]
+	for i = 2, #file_lines do
+		new_file_text = new_file_text.."\n" ..file_lines[i]
+	end
+	
+	
+	local new_file_path = folder_path .. file_name .. '_modified' .. file_ext
+	
+	log('  Saving results into: "'..new_file_path..'"')
+	
+	local new_file = assert(io.open(new_file_path, "w+"))
+	new_file:write(new_file_text)
+	new_file:flush()
+	new_file:close()
 end
 
-replace_GUID("replace_guid.xml")
+
+assert(type(arg) == 'table' and #arg > 0, 'file path[s] expected')
+
+local is_success, err_msg
+for i = 1, #arg do
+	log('process file "'..tostring(arg[i])..'" ('..i..') ...')
+	is_success, err_msg = pcall(replace_GUID, arg[i])
+	if not is_success then
+		log('    failed to process file, reason: ' .. tostring(err_msg))
+	end
+	log('--------------------------------')
+end
+
 local failed = 0
 for guid, count in pairs(UUID_COUNT) do
-
-    if count == 1 then
-        log("GUID "..guid.." was only used once.")
-        failed = failed + 1
-    end
+	if count == 1 then
+		log("GUID "..guid.." was only used once.")
+		failed = failed + 1
+	end
 end
+
 
 
 local error_msg = ""
 if failed > total_allowed_fails then
-    --error_msg = error_msg .. (failed.." lone GUIDs found, "..total_allowed_fails.." allowed.\n")
+    error_msg = error_msg .. (failed.." lone GUIDs found, "..total_allowed_fails.." allowed.\n")
 else
     log(failed.." lone GUIDs found, "..total_allowed_fails.." allowed.")
 end
@@ -135,3 +162,5 @@ end
 if error_msg ~= "" then
     error(error_msg)
 end
+
+log('done')
